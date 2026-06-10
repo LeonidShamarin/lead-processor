@@ -17,7 +17,7 @@ from fastapi.responses import JSONResponse, HTMLResponse
 
 from ai_service import analyze_lead
 from models import LeadRequest, ProcessedLead
-from sheets import append_lead_to_sheet
+from airtable import append_lead_to_airtable
 from telegram import send_telegram_notification
 
 # ---------------------------------------------------------------------------
@@ -102,7 +102,7 @@ async def process_lead(payload: LeadRequest):
     )
 
     # Step 3 & 4: Sheets + Telegram run concurrently to save time
-    sheet_task = asyncio.create_task(append_lead_to_sheet(lead))
+    sheet_task = asyncio.create_task(append_lead_to_airtable(lead))
     telegram_task = asyncio.create_task(send_telegram_notification(lead))
 
     sheet_result, telegram_result = await asyncio.gather(
@@ -122,7 +122,7 @@ async def process_lead(payload: LeadRequest):
         "classification": lead.classification,
         "ai_summary": lead.ai_summary,
         "destinations": {
-            "google_sheets": bool(sheet_result and not isinstance(sheet_result, Exception)),
+            "airtable": bool(sheet_result and not isinstance(sheet_result, Exception)),
             "telegram": bool(telegram_result and not isinstance(telegram_result, Exception)),
         },
     }
