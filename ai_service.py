@@ -1,11 +1,13 @@
 """
-AI service — uses Google Gemini 2.0 Flash (FREE tier: 1500 req/day) to:
+AI service — uses Groq (FREE tier: 14,400 req/day) to:
 1. Generate a concise human-readable summary of the lead.
 2. Classify the lead as HOT / WARM / COLD with reasoning.
 
-Get a free API key at: https://aistudio.google.com/apikey
+Model: llama-3.3-70b-versatile — fast, accurate, free.
+Get a free API key at: https://console.groq.com/keys
 No credit card required.
 
+Groq uses OpenAI-compatible API → simple REST call.
 Structured output via JSON-only prompt → deterministic json.loads() parsing.
 """
 
@@ -20,11 +22,8 @@ from models import LeadRequest, LeadScore
 
 logger = logging.getLogger(__name__)
 
-# Gemini REST endpoint (no SDK needed — plain HTTP)
-GEMINI_API_URL = (
-    "https://generativelanguage.googleapis.com/v1beta/models/"
-    "gemini-2.0-flash:generateContent"
-)
+GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
+GROQ_MODEL = "llama-3.3-70b-versatile"
 
 SYSTEM_PROMPT = """You are a CRM analyst assistant. You receive lead form submissions
 and return structured JSON with exactly three fields:
@@ -64,46 +63,40 @@ async def analyze_lead(lead: LeadRequest) -> Tuple[str, LeadScore, str]:
     Returns (summary, classification, reason).
     Falls back to rule-based analysis if the API call fails.
     """
-    api_key = os.getenv("GEMINI_API_KEY", "")
+    api_key = os.getenv("GROQ_API_KEY", "")
     if not api_key:
-        logger.warning("GEMINI_API_KEY not set — using fallback classification")
+        logger.warning("GROQ_API_KEY not set — using fallback classification")
         return _fallback_analysis(lead)
 
     lead_text = _build_lead_text(lead)
 
-    # Gemini REST payload: system instruction + user message
+    # Groq uses OpenAI-compatible chat completions format
     payload = {
-        "system_instruction": {
-            "parts": [{"text": SYSTEM_PROMPT}]
-        },
-        "contents": [
-            {
-                "role": "user",
-                "parts": [{"text": f"Analyze this lead:\n\n{lead_text}"}],
-            }
+        "model": GROQ_MODEL,
+        "messages": [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": f"Analyze this lead:\n\n{lead_text}"},
         ],
-        "generationConfig": {
-            "maxOutputTokens": 512,
-            "temperature": 0.2,          # low temp → consistent JSON
-        },
+        "max_tokens": 512,
+        "temperature": 0.2,
     }
 
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             response = await client.post(
-                GEMINI_API_URL,
-                params={"key": api_key},
-                headers={"Content-Type": "application/json"},
+                GROQ_API_URL,
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
                 json=payload,
             )
             response.raise_for_status()
             data = response.json()
 
-        # Extract text from Gemini response structure
-        raw_text = (
-            data["candidates"][0]["content"]["parts"][0]["text"].strip()
-        )
-        # Strip accidental markdown fences if model adds them anyway
+        # OpenAI-compatible response structure
+        raw_text = data["choices"][0]["message"]["content"].strip()
+        # Strip accidental markdown fences
         raw_text = raw_text.removeprefix("```json").removeprefix("```").removesuffix("```").strip()
 
         parsed = json.loads(raw_text)
@@ -118,10 +111,11 @@ async def analyze_lead(lead: LeadRequest) -> Tuple[str, LeadScore, str]:
             "COLD": LeadScore.COLD,
         }.get(raw_class, LeadScore.WARM)
 
+        logger.info("Groq analysis complete: %s", raw_class)
         return summary, classification, reason
 
     except Exception as exc:
-        logger.error("Gemini AI analysis failed: %s", exc)
+        logger.error("Groq AI analysis failed: %s", exc)
         return _fallback_analysis(lead)
 
 
@@ -159,3 +153,4 @@ def _fallback_analysis(lead: LeadRequest) -> Tuple[str, LeadScore, str]:
         f"Message: {(lead.message or 'none')[:120]}."
     )
     return summary, classification, reason
+    
