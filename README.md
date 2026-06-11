@@ -15,8 +15,8 @@ POST /webhook/lead
          │
          ▼
 ┌─────────────────┐
-│   AI Analysis   │  Gemini 2.0 Flash (безкоштовно) — генерує
-│  (Gemini API)   │  summary та класифікує: 🔥 HOT / 🟡 WARM / ❄️ COLD
+│   AI Analysis   │  Groq — Llama 3.3 70B (безкоштовно, 14400 req/day)
+│  (Groq API)     │  генерує summary та класифікує: 🔥 HOT / 🟡 WARM / ❄️ COLD
 └────────┬────────┘
          │
     ┌────┴────┐  (паралельно)
@@ -34,6 +34,8 @@ POST /webhook/lead
 - **API:** https://lead-processor-seap.onrender.com
 - **Swagger UI:** https://lead-processor-seap.onrender.com/docs
 - **Health check:** https://lead-processor-seap.onrender.com/health
+
+> ℹ️ Сервіс розгорнуто на безкоштовному плані Render. Після 15 хв неактивності засинає — перший запит може зайняти ~30 сек.
 
 ---
 
@@ -66,10 +68,10 @@ curl -X POST https://lead-processor-seap.onrender.com/webhook/lead \
 ```json
 {
   "success": true,
-  "lead_id": "2D6BC61C",
-  "received_at": "2026-06-11 09:40 UTC",
+  "lead_id": "8C6E6FAD",
+  "received_at": "2026-06-11 10:23 UTC",
   "classification": "🔥 HOT",
-  "ai_summary": "Іван Сірко з компанії ТОВ Технології Майбутнього шукає партнера для автоматизації відділу продажів з бюджетом 15 000. Потрібна інтеграція Bitrix24 з маркетплейсами — проект терміновий.",
+  "ai_summary": "Іван Сірко з ТОВ Технології Майбутнього шукає партнера для автоматизації відділу продажів, зокрема інтеграцію з маркетплейсами та автоматичне виставлення рахунків, з терміновим стартом наступного місяця.",
   "destinations": {
     "airtable": true,
     "telegram": true
@@ -99,7 +101,7 @@ curl -X POST https://lead-processor-seap.onrender.com/webhook/lead \
 | 🟡 **WARM** | Є сигнали зацікавленості, але неповні дані |
 | ❄️ **COLD** | Відсутній бюджет, нечіткий запит, ймовірний студент/дослідник |
 
-При недоступності Gemini API — автоматичний fallback на rule-based класифікацію.
+При недоступності Groq API — автоматичний fallback на rule-based класифікацію (система не падає).
 
 ---
 
@@ -108,10 +110,10 @@ curl -X POST https://lead-processor-seap.onrender.com/webhook/lead \
 ```
 lead_processor/
 ├── main.py           # FastAPI app, endpoint /webhook/lead
-├── models.py         # Pydantic схеми + нормалізація
-├── ai_service.py     # Gemini 2.0 Flash: summary + класифікація
-├── airtable.py       # Airtable API: запис рядка
-├── telegram.py       # Telegram Bot API: сповіщення
+├── models.py         # Pydantic схеми + нормалізація даних
+├── ai_service.py     # Groq Llama 3.3 70B: summary + класифікація
+├── airtable.py       # Airtable API: запис рядка в таблицю
+├── telegram.py       # Telegram Bot API: HTML-сповіщення
 ├── requirements.txt
 ├── .env.example
 ├── test_payload.json
@@ -139,7 +141,7 @@ cp .env.example .env
 
 | Змінна | Опис |
 |--------|------|
-| `GEMINI_API_KEY` | Безкоштовно: [aistudio.google.com/apikey](https://aistudio.google.com/apikey) — 1500 req/day, без кредитки |
+| `GROQ_API_KEY` | Безкоштовно: [console.groq.com/keys](https://console.groq.com/keys) — 14,400 req/day, без кредитки |
 | `AIRTABLE_API_TOKEN` | [airtable.com/create/tokens](https://airtable.com/create/tokens) — scope: `data.records:write` |
 | `AIRTABLE_BASE_ID` | ID бази з URL: `airtable.com/appXXXXXX/...` |
 | `AIRTABLE_TABLE_ID` | ID таблиці з URL: `.../tblXXXXXX/...` |
@@ -155,11 +157,11 @@ uvicorn main:app --reload
 
 ---
 
-## Деплой
+## Деплой (Render.com)
 
 Проект задеплоєний на **Render.com** (безкоштовний план):
 
 1. New Web Service → Connect GitHub repo
-2. Build: `pip install -r requirements.txt`
-3. Start: `uvicorn main:app --host 0.0.0.0 --port $PORT`
-4. Додати Environment Variables
+2. Build Command: `pip install -r requirements.txt`
+3. Start Command: `uvicorn main:app --host 0.0.0.0 --port $PORT`
+4. Додати Environment Variables у вкладці Variables
