@@ -21,8 +21,7 @@ TELEGRAM_API = "https://api.telegram.org/bot{token}/sendMessage"
 
 
 def _format_message(lead: ProcessedLead) -> str:
-    """Build a clean, readable Telegram notification."""
-    # Emoji header by classification
+    """Build a clean HTML-formatted Telegram notification."""
     header_emoji = {
         LeadScore.HOT: "🔥🔥🔥",
         LeadScore.WARM: "🟡",
@@ -30,51 +29,55 @@ def _format_message(lead: ProcessedLead) -> str:
     }.get(lead.classification, "📋")
 
     lines = [
-        f"{header_emoji} *New Lead — {lead.classification}*",
-        f"🆔 `{lead.lead_id}` | {lead.received_at}",
+        f"{header_emoji} <b>New Lead — {h(lead.classification.value if hasattr(lead.classification, 'value') else lead.classification)}</b>",
+        f"🆔 <code>{h(lead.lead_id)}</code> | {h(lead.received_at)}",
         "",
-        f"👤 *{_esc(lead.name)}*",
-        f"📧 {_esc(lead.email)}",
+        f"👤 <b>{h(lead.name)}</b>",
+        f"📧 {h(lead.email)}",
     ]
 
     if lead.phone:
-        lines.append(f"📞 {_esc(lead.phone)}")
+        lines.append(f"📞 {h(lead.phone)}")
     if lead.company:
-        company_line = _esc(lead.company)
+        company_line = h(lead.company)
         if lead.employees:
-            company_line += f" \\({_esc(lead.employees)} employees\\)"
+            company_line += f" ({h(lead.employees)} employees)"
         lines.append(f"🏢 {company_line}")
     if lead.budget:
-        lines.append(f"💰 Budget: {_esc(lead.budget)}")
+        lines.append(f"💰 Budget: {h(lead.budget)}")
     if lead.service:
-        lines.append(f"🛠 Service: {_esc(lead.service)}")
+        lines.append(f"🛠 Service: {h(lead.service)}")
     if lead.source:
-        lines.append(f"📡 Source: {_esc(lead.source)}")
+        lines.append(f"📡 Source: {h(lead.source)}")
 
     lines += [
         "",
-        f"📝 *AI Summary:*",
-        _esc(lead.ai_summary),
+        f"📝 <b>AI Summary:</b>",
+        h(lead.ai_summary),
         "",
-        f"🎯 *Reason:* _{_esc(lead.classification_reason)}_",
+        f"🎯 <i>Reason: {h(lead.classification_reason)}</i>",
     ]
 
     if lead.message:
         trimmed = lead.message[:300] + ("…" if len(lead.message) > 300 else "")
-        lines += ["", f"💬 *Message:*", _esc(trimmed)]
+        lines += ["", f"💬 <b>Message:</b>", h(trimmed)]
 
     return "\n".join(lines)
 
 
-def _esc(text: str) -> str:
-    """Escape special MarkdownV2 characters."""
-    special = r"\_*[]()~`>#+-=|{}.!"
-    return "".join(f"\\{c}" if c in special else c for c in str(text))
+def h(text: str) -> str:
+    """Escape HTML special characters for Telegram HTML parse mode."""
+    return (
+        str(text)
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+    )
 
 
 async def send_telegram_notification(lead: ProcessedLead) -> bool:
     """
-    Sends a MarkdownV2 message to the configured Telegram chat.
+    Sends an HTML-formatted message to the configured Telegram chat.
     Returns True on success, False on any error.
     """
     token = os.getenv("TELEGRAM_BOT_TOKEN", "")
@@ -94,7 +97,7 @@ async def send_telegram_notification(lead: ProcessedLead) -> bool:
                 json={
                     "chat_id": chat_id,
                     "text": text,
-                    "parse_mode": "MarkdownV2",
+                    "parse_mode": "HTML",
                     "disable_web_page_preview": True,
                 },
             )
