@@ -85,7 +85,7 @@ async def process_lead(payload: LeadRequest):
     """
     Full pipeline:
     1. Validate & normalize the incoming JSON (handled by Pydantic).
-    2. Send to Claude for AI summary + classification.
+    2. Send to Groq (llama-3.3-70b) for AI summary + classification.
     3. Persist to Airtable.
     4. Send Telegram notification.
     5. Return a summary response.

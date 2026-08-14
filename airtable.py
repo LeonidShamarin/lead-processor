@@ -1,5 +1,5 @@
 """
-Airtable integration — replaces Google Sheets.
+Airtable integration — the destination for processed leads.
 
 Appends one record per processed lead using the Airtable REST API v0.
 No SDK needed — plain httpx calls.

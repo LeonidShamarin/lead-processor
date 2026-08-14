@@ -110,7 +110,7 @@ class LeadRequest(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Enriched / processed lead — written to Sheets & sent to Telegram
+# Enriched / processed lead — written to Airtable & sent to Telegram
 # ---------------------------------------------------------------------------
 
 class ProcessedLead(BaseModel):
@@ -144,30 +144,3 @@ class ProcessedLead(BaseModel):
             values["lead_id"] = str(uuid.uuid4())[:8].upper()
         return values
 
-    def to_sheet_row(self) -> list:
-        """Flat list for Google Sheets append."""
-        return [
-            self.lead_id,
-            self.received_at,
-            self.name,
-            self.email,
-            self.phone or "",
-            self.company or "",
-            self.employees or "",
-            self.budget or "",
-            self.service or "",
-            self.source or "",
-            self.message or "",
-            self.classification,
-            self.classification_reason,
-            self.ai_summary,
-        ]
-
-    @staticmethod
-    def sheet_headers() -> list:
-        return [
-            "ID", "Received At", "Name", "Email", "Phone",
-            "Company", "Employees", "Budget", "Service",
-            "Source", "Message", "Classification",
-            "Classification Reason", "AI Summary",
-        ]
