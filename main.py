@@ -12,8 +12,14 @@ import logging
 import os
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, Request, status
+from dotenv import load_dotenv
+from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse, HTMLResponse
+
+# Кожен модуль читає свої ключі через os.getenv на момент виклику, тож .env
+# треба підвантажити тут, до першого запиту. На платформах змінні задані в
+# оточенні — там load_dotenv просто не знаходить файлу і нічого не робить.
+load_dotenv()
 
 from ai_service import analyze_lead
 from models import LeadRequest, ProcessedLead
@@ -43,7 +49,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Lead Processor API",
-    description="MVP pipeline: receive → normalize → AI summary → classify → Sheets → Telegram",
+    description="Pipeline: receive → normalize → AI summary → classify → Airtable + Telegram",
     version="1.0.0",
     lifespan=lifespan,
 )
@@ -80,11 +86,11 @@ async def process_lead(payload: LeadRequest):
     Full pipeline:
     1. Validate & normalize the incoming JSON (handled by Pydantic).
     2. Send to Claude for AI summary + classification.
-    3. Persist to Google Sheets.
+    3. Persist to Airtable.
     4. Send Telegram notification.
     5. Return a summary response.
 
-    All downstream failures (Sheets / Telegram) are non-fatal — the endpoint
+    All downstream failures (Airtable / Telegram) are non-fatal — the endpoint
     always returns 200 if the lead was received and processed by AI.
     """
     logger.info("New lead received: %s <%s>", payload.name, payload.email)
@@ -101,7 +107,7 @@ async def process_lead(payload: LeadRequest):
         classification_reason=reason,
     )
 
-    # Step 3 & 4: Sheets + Telegram run concurrently to save time
+    # Step 3 & 4: Airtable + Telegram run concurrently to save time
     sheet_task = asyncio.create_task(append_lead_to_airtable(lead))
     telegram_task = asyncio.create_task(send_telegram_notification(lead))
 
@@ -111,7 +117,7 @@ async def process_lead(payload: LeadRequest):
 
     # Log but don't fail on downstream errors
     if isinstance(sheet_result, Exception):
-        logger.error("Sheets task raised: %s", sheet_result)
+        logger.error("Airtable task raised: %s", sheet_result)
     if isinstance(telegram_result, Exception):
         logger.error("Telegram task raised: %s", telegram_result)
 
