@@ -1,112 +1,112 @@
+**English** | [Українська](README.uk.md)
+
 # Lead Processor
 
-FastAPI-сервіс, який приймає заявку з лендінгу вебхуком і за кілька секунд
-віддає менеджеру щось, з чим уже можна працювати: нормалізовані контакти,
-згенероване AI резюме заявки та оцінку ліда — 🔥 HOT / 🟡 WARM / ❄️ COLD.
-Результат паралельно лягає в Airtable і прилітає в Telegram.
+A FastAPI service that takes a landing-page enquiry by webhook and, within seconds, hands a
+sales manager something they can work with: normalised contacts, an AI-written summary of the
+enquiry and a lead score, 🔥 HOT / 🟡 WARM / ❄️ COLD. The result goes to Airtable and to
+Telegram in parallel.
 
-![Демо: запит у Swagger UI і сповіщення з класифікованим лідом у Telegram](docs/demo.gif)
+![Demo: a request in Swagger UI and the classified lead arriving in Telegram](docs/demo.gif)
 
-*Запит іде через `POST /webhook/lead`, бот присилає картку ліда, і той самий
-запис зʼявляється рядком у таблиці Airtable. Список чатів у записі навмисно
-розмито.*
+*The request goes through `POST /webhook/lead`, the bot sends the lead card, and the same
+record appears as a row in the Airtable table. The chat list in the recording is blurred on
+purpose.*
 
 ---
 
-## Що відбувається із заявкою
+## What happens to an enquiry
 
 ```
 POST /webhook/lead
        │
        ▼
 ┌─────────────────────┐
-│  Валідація та       │  Pydantic: імʼя, email, телефон,
-│  нормалізація       │  бюджет, джерело
+│  Validation and     │  Pydantic: name, email, phone,
+│  normalisation      │  budget, source
 └──────────┬──────────┘
            │
            ▼
 ┌─────────────────────┐
-│   AI-аналіз         │  Groq · llama-3.3-70b-versatile
-│                     │  резюме + HOT / WARM / COLD + причина
+│   AI analysis       │  Groq · llama-3.3-70b-versatile
+│                     │  summary + HOT / WARM / COLD + reason
 └──────────┬──────────┘
            │
-     ┌─────┴─────┐   (паралельно, asyncio.gather)
+     ┌─────┴─────┐   (in parallel, asyncio.gather)
      ▼           ▼
 ┌──────────┐ ┌──────────┐
 │ Airtable │ │ Telegram │
 └──────────┘ └──────────┘
 ```
 
-Стек: **FastAPI + Pydantic v2**, **Groq** (`llama-3.3-70b-versatile`),
-**Airtable REST API v0**, **Telegram Bot API**. Усі зовнішні виклики — через
-`httpx`, без SDK.
+Stack: **FastAPI + Pydantic v2**, **Groq** (`llama-3.3-70b-versatile`), **Airtable REST API v0**,
+**Telegram Bot API**. All outside calls go through `httpx`, no SDKs.
 
 ---
 
-## Три рішення, які тут варто пояснити
+## Three decisions worth explaining
 
-**Усе після AI-кроку не є фатальним.** Якщо Airtable або Telegram недоступні,
-ендпоінт усе одно повертає `200`, а поле `destinations` показує, куди саме
-дійшло. Логіка проста: заявку вже прийнято й оброблено, і втратити її через
-збій нотифікації — гірша поразка, ніж тихо не надіслати повідомлення. Помилки
-пишуться в лог, лід не губиться.
+**Everything after the AI step is non-fatal.** If Airtable or Telegram is unavailable, the
+endpoint still returns `200`, and the `destinations` field shows where the lead actually got
+to. The reasoning is simple: the enquiry has already been received and processed, and losing it
+to a notification outage is a worse failure than quietly not sending a message. Errors go to
+the log; the lead is not lost.
 
-**Airtable і Telegram ідуть паралельно** через `asyncio.gather(...,
-return_exceptions=True)` — послідовно це були б дві мережеві затримки одна за
-одною на кожній заявці.
+**Airtable and Telegram run in parallel** through `asyncio.gather(..., return_exceptions=True)`;
+in sequence it would be two network round trips one after another on every enquiry.
 
-**Класифікація має rule-based запасний шлях.** Якщо `GROQ_API_KEY` не заданий
-або виклик впав, `_fallback_analysis()` рахує простий скор за наявністю
-бюджету, компанії, телефону й довжини повідомлення. Оцінка грубіша, але заявка
-все одно доїжджає розміченою, а не падає в помилку.
+**Classification has a rule-based fallback.** If `GROQ_API_KEY` is not set or the call fails,
+`_fallback_analysis()` computes a simple score from the presence of a budget, a company, a phone
+number and the message length. The score is rougher, but the enquiry still arrives labelled
+instead of failing with an error.
 
 ---
 
-## Запуск
+## Run
 
 ```bash
 python -m venv .venv
 .venv/Scripts/activate          # Linux/macOS: source .venv/bin/activate
 pip install -r requirements.txt
 
-cp .env.example .env            # заповнити ключі
+cp .env.example .env            # fill in the keys
 python main.py                  # http://localhost:8000
 ```
 
-Інтерактивна документація — `http://localhost:8000/docs`.
+Interactive docs: `http://localhost:8000/docs`.
 
-### Змінні оточення
+### Environment variables
 
-| Змінна | Обовʼязкова | Навіщо |
+| Variable | Required | Why |
 |---|---|---|
-| `GROQ_API_KEY` | ні¹ | Ключ [Groq](https://console.groq.com/keys) — безкоштовно, 14 400 запитів/добу, без картки |
-| `AIRTABLE_API_TOKEN` | ні² | Personal Access Token, [створити](https://airtable.com/create/tokens) зі скоупом `data.records:write` |
-| `AIRTABLE_BASE_ID` | ні² | ID бази, вигляду `appXXXXXXXXXXXXXX` |
-| `AIRTABLE_TABLE_ID` | ні² | ID таблиці, `tblXXXXXXXXXXXXXX`, або її назва |
-| `TELEGRAM_BOT_TOKEN` | ні² | Токен від [@BotFather](https://t.me/BotFather) |
-| `TELEGRAM_CHAT_ID` | ні² | ID чату або каналу (для каналу починається з `-100`) |
-| `PORT` | ні | Порт сервера, дефолт `8000` |
+| `GROQ_API_KEY` | no¹ | A [Groq](https://console.groq.com/keys) key: free, 14 400 requests/day, no card |
+| `AIRTABLE_API_TOKEN` | no² | Personal Access Token, [create one](https://airtable.com/create/tokens) with the `data.records:write` scope |
+| `AIRTABLE_BASE_ID` | no² | Base id, like `appXXXXXXXXXXXXXX` |
+| `AIRTABLE_TABLE_ID` | no² | Table id, `tblXXXXXXXXXXXXXX`, or its name |
+| `TELEGRAM_BOT_TOKEN` | no² | A token from [@BotFather](https://t.me/BotFather) |
+| `TELEGRAM_CHAT_ID` | no² | Chat or channel id (a channel id starts with `-100`) |
+| `PORT` | no | Server port, default `8000` |
 
-¹ Без ключа сервіс не падає — вмикається rule-based класифікація.
-² Без цих змінних відповідний крок просто пропускається з попередженням у логу.
+¹ Without the key the service does not fail: rule-based classification takes over.
+² Without these variables the corresponding step is skipped with a warning in the log.
 
-Таблиця в Airtable має містити колонки: `Lead ID`, `Received At`, `Name`,
-`Email`, `Phone`, `Company`, `Employees`, `Budget`, `Service`, `Source`,
-`Message`, `Classification`, `Classification Reason`, `AI Summary`.
+The Airtable table must have the columns: `Lead ID`, `Received At`, `Name`, `Email`, `Phone`,
+`Company`, `Employees`, `Budget`, `Service`, `Source`, `Message`, `Classification`,
+`Classification Reason`, `AI Summary`.
 
-Ключі беруться тільки з `.env` / оточення і в репозиторій не потрапляють.
+Keys come only from `.env` / the environment and never reach the repository.
 
 ---
 
-## Ендпоінти
+## Endpoints
 
-| Метод | Шлях | Що робить |
+| Method | Path | What it does |
 |---|---|---|
-| `POST` | `/webhook/lead` | Обробити заявку |
-| `GET` | `/health` | Liveness-перевірка, `{"status": "ok"}` |
+| `POST` | `/webhook/lead` | Process an enquiry |
+| `GET` | `/health` | Liveness check, `{"status": "ok"}` |
 | `GET` | `/docs` | Swagger UI |
 
-### Перевірка
+### Check
 
 ```bash
 curl -X POST http://localhost:8000/webhook/lead \
@@ -114,7 +114,7 @@ curl -X POST http://localhost:8000/webhook/lead \
   -d @test_payload.json
 ```
 
-### Приклад відповіді
+### Example response
 
 ```json
 {
@@ -130,14 +130,15 @@ curl -X POST http://localhost:8000/webhook/lead \
 }
 ```
 
+The summary is in Ukrainian because the enquiries are.
+
 ---
 
-## Нормалізація
+## Normalisation
 
-Форми присилають те, що набрала людина. `models.py` приводить це до ладу
-до того, як дані підуть далі:
+Forms send whatever a person typed. `models.py` tidies it up before the data goes further:
 
-| Поле | Вхід | Після нормалізації |
+| Field | Input | After normalisation |
 |---|---|---|
 | `name` | `"  іванов петро  "` | `"Іванов Петро"` |
 | `email` | `"Petro@EXAMPLE.COM"` | `"petro@example.com"` |
@@ -145,59 +146,56 @@ curl -X POST http://localhost:8000/webhook/lead \
 | `budget` | `"15k"`, `"$5,000"`, `"до 10 000 грн"` | `"15000"`, `"5000"`, `"10000"` |
 | `source` | `"LinkedIn"`, `"friend"` | `"social"`, `"referral"` |
 
-Телефон із 10 цифр, що починається з `0`, вважається українським і
-розгортається у `+380…`. Бюджет, який не вдалося звести до числа, лишається
-як є — краще передати менеджеру сирий рядок, ніж вигадану цифру.
+A 10-digit phone number starting with `0` is treated as Ukrainian and expanded to `+380…`. A
+budget that cannot be reduced to a number stays as it is: better to pass the manager the raw
+string than an invented figure.
 
-## Класифікація
+## Classification
 
-| Оцінка | Критерії |
+| Score | Criteria |
 |---|---|
-| 🔥 **HOT** | Великий бюджет, компанія, конкретний запит, терміновість |
-| 🟡 **WARM** | Є сигнали зацікавленості, але дані неповні |
-| ❄️ **COLD** | Немає бюджету, нечіткий запит, ймовірно студент або дослідник |
+| 🔥 **HOT** | Large budget, a company, a specific request, urgency |
+| 🟡 **WARM** | Signs of interest, but incomplete data |
+| ❄️ **COLD** | No budget, a vague request, probably a student or researcher |
 
-Модель відповідає JSON-ом із трьох полів (`summary`, `classification`,
-`reason`); markdown-огорожі, якщо вони таки зʼявляються, зрізаються перед
-`json.loads`.
-
----
-
-## Обмеження
-
-Це MVP, і ось що в ньому свідомо не закрито:
-
-- **Вебхук не автентифікований.** Хто знає URL — може слати заявки. Для
-  продакшену потрібен спільний секрет у заголовку або підпис від форми.
-- **Немає тестів.** Найкорисніші були б на нормалізацію в `models.py` —
-  вона суто детермінована і мокати нічого не треба.
-- **Немає ретраїв і черги.** Якщо Airtable віддав 500, запис просто губиться:
-  в лог він потрапляє, але ніхто його не перепроведе. Наступний крок —
-  складати невдалі записи в чергу і повторювати.
-- **Валюта бюджету втрачається.** `"$5,000"` і `"5000 грн"` обидва стають
-  `"5000"`. Поки всі заявки в одній валюті це не заважає, далі — заважатиме.
-- **`lead_id` — це `uuid4[:8]`.** 8 hex-символів; на десятках тисяч заявок
-  колізія стає реальною.
+The model answers with JSON of three fields (`summary`, `classification`, `reason`); markdown
+fences, if they appear anyway, are stripped before `json.loads`.
 
 ---
 
-## Структура
+## Limits
+
+This is an MVP, and here is what it deliberately leaves open:
+
+- **The webhook is not authenticated.** Anyone who knows the URL can send enquiries.
+  Production needs a shared secret in a header or a signature from the form.
+- **No tests.** The most useful ones would cover the normalisation in `models.py`: it is purely
+  deterministic and nothing needs mocking.
+- **No retries and no queue.** If Airtable returns 500, the record is simply lost: it reaches the
+  log, but nobody replays it. The next step is to queue failed records and retry them.
+- **The budget currency is lost.** `"$5,000"` and `"5000 грн"` both become `"5000"`. While all
+  enquiries are in one currency it does not matter; later it will.
+- **`lead_id` is `uuid4[:8]`.** 8 hex characters; at tens of thousands of enquiries a collision
+  becomes real.
+
+---
+
+## Structure
 
 ```
-main.py             FastAPI-застосунок, ендпоінти, оркестрація пайплайна
-models.py           Pydantic: LeadRequest (нормалізація) + ProcessedLead
-ai_service.py       Groq: промпт, парсинг JSON, rule-based фолбек
-airtable.py         Запис рядка в Airtable через REST API
-telegram.py         Форматування й надсилання HTML-повідомлення в Telegram
-test_payload.json   Приклад заявки для перевірки
-docs/demo.gif       Запис роботи сервісу
+main.py             FastAPI app, endpoints, pipeline orchestration
+models.py           Pydantic: LeadRequest (normalisation) + ProcessedLead
+ai_service.py       Groq: prompt, JSON parsing, rule-based fallback
+airtable.py         Writing a row to Airtable through the REST API
+telegram.py         Formatting and sending the HTML message to Telegram
+test_payload.json   An example enquiry for testing
+docs/demo.gif       Recording of the service
 ```
 
-## Деплой
+## Deploy
 
-Образу тут немає — це звичайний ASGI-застосунок, який стартує через
-`uvicorn main:app`. Порт читається зі змінної `PORT`, тож він підходить
-платформам, які підставляють її самі (Render, Railway, Fly.io). Python-версія
-зафіксована в `runtime.txt` і `.python-version` — 3.11.9.
+There is no image here: it is a plain ASGI app started with `uvicorn main:app`. The port is read
+from the `PORT` variable, so it fits platforms that set it themselves (Render, Railway, Fly.io).
+The Python version is pinned in `runtime.txt` and `.python-version` to 3.11.9.
 
-Секрети задаються змінними оточення на боці платформи, а не файлом `.env`.
+Secrets are set as environment variables on the platform side, not in a `.env` file.
