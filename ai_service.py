@@ -22,8 +22,45 @@ from models import LeadRequest, LeadScore
 
 logger = logging.getLogger(__name__)
 
-GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 GROQ_MODEL = "llama-3.3-70b-versatile"
+
+# Provider fallback chain. Groq, OpenAI and xAI are OpenAI-compatible; Gemini has
+# an OpenAI-compatible endpoint. Order: the current provider (Groq) first, then the
+# four shared keys, then the last-priority keys. Any provider that fails hands off
+# to the next; if every one fails, analyze_lead still returns via _fallback_analysis.
+PROVIDERS = {
+    # provider -> (base_url, model)
+    "groq": ("https://api.groq.com/openai/v1", GROQ_MODEL),
+    "gemini": ("https://generativelanguage.googleapis.com/v1beta/openai", "gemini-2.5-flash"),
+    "openai": ("https://api.openai.com/v1", "gpt-4o-mini"),
+    "xai": ("https://api.x.ai/v1", "grok-2-latest"),
+}
+# (provider, env var) in chain order; duplicates by (provider, key value) collapse.
+_CHAIN = [
+    ("groq", "GROQ_API_KEY"),          # current provider
+    ("gemini", "GEMINI_API_KEY"),      # ai-keys.env, file order
+    ("groq", "GROQ_API_KEY"),
+    ("openai", "OPENAI_API_KEY"),
+    ("xai", "XAI_API_KEY"),
+    ("gemini", "GEMINI_API_KEY_2"),    # ключі2.txt, last
+    ("gemini", "GEMINI_API_KEY_3"),
+    ("groq", "GROQ_API_KEY_2"),
+]
+
+
+def _build_chain(env) -> list:
+    """Resolve the chain to a list of (label, base_url, model, api_key) from env,
+    skipping unset keys and collapsing duplicate (provider, key) pairs."""
+    out = []
+    seen = set()
+    for provider, var in _CHAIN:
+        key = (env.get(var) or "").strip()
+        if not key or (provider, key) in seen:
+            continue
+        seen.add((provider, key))
+        base_url, model = PROVIDERS[provider]
+        out.append((f"{provider}:{var}", base_url, model, key))
+    return out
 
 SYSTEM_PROMPT = """You are a CRM analyst assistant. You receive lead form submissions
 and return structured JSON with exactly three fields:
@@ -58,65 +95,65 @@ def _build_lead_text(lead: LeadRequest) -> str:
     return "\n".join(parts)
 
 
+async def _call_provider(client: httpx.AsyncClient, base_url: str, model: str,
+                         api_key: str, messages: list) -> str:
+    """One OpenAI-compatible chat completion. Raises on any transport/HTTP error."""
+    response = await client.post(
+        f"{base_url}/chat/completions",
+        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+        json={"model": model, "messages": messages, "max_tokens": 512, "temperature": 0.2},
+    )
+    response.raise_for_status()
+    return response.json()["choices"][0]["message"]["content"].strip()
+
+
+def _parse_analysis(raw_text: str) -> Tuple[str, LeadScore, str]:
+    # Strip accidental markdown fences
+    raw_text = raw_text.removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+    parsed = json.loads(raw_text)
+    summary = parsed.get("summary", "No summary generated.")
+    raw_class = parsed.get("classification", "WARM").upper()
+    reason = parsed.get("reason", "")
+    classification = {
+        "HOT": LeadScore.HOT,
+        "WARM": LeadScore.WARM,
+        "COLD": LeadScore.COLD,
+    }.get(raw_class, LeadScore.WARM)
+    return summary, classification, reason
+
+
 async def analyze_lead(lead: LeadRequest) -> Tuple[str, LeadScore, str]:
     """
     Returns (summary, classification, reason).
-    Falls back to rule-based analysis if the API call fails.
+
+    Tries each configured provider in the fallback chain in turn; if every one
+    fails (or none is configured), falls back to rule-based analysis so a lead is
+    never lost.
     """
-    api_key = os.getenv("GROQ_API_KEY", "")
-    if not api_key:
-        logger.warning("GROQ_API_KEY not set — using fallback classification")
+    chain = _build_chain(os.environ)
+    if not chain:
+        logger.warning("no provider key set — using fallback classification")
         return _fallback_analysis(lead)
 
-    lead_text = _build_lead_text(lead)
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": f"Analyze this lead:\n\n{_build_lead_text(lead)}"},
+    ]
 
-    # Groq uses OpenAI-compatible chat completions format
-    payload = {
-        "model": GROQ_MODEL,
-        "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": f"Analyze this lead:\n\n{lead_text}"},
-        ],
-        "max_tokens": 512,
-        "temperature": 0.2,
-    }
+    errors = []
+    async with httpx.AsyncClient(timeout=30) as client:
+        for label, base_url, model, api_key in chain:
+            try:
+                raw_text = await _call_provider(client, base_url, model, api_key, messages)
+                result = _parse_analysis(raw_text)
+                logger.info("AI analysis complete via %s: %s", label, result[1])
+                return result
+            except Exception as exc:
+                errors.append(f"{label}: {str(exc)[:120]}")
+                continue
 
-    try:
-        async with httpx.AsyncClient(timeout=30) as client:
-            response = await client.post(
-                GROQ_API_URL,
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json",
-                },
-                json=payload,
-            )
-            response.raise_for_status()
-            data = response.json()
-
-        # OpenAI-compatible response structure
-        raw_text = data["choices"][0]["message"]["content"].strip()
-        # Strip accidental markdown fences
-        raw_text = raw_text.removeprefix("```json").removeprefix("```").removesuffix("```").strip()
-
-        parsed = json.loads(raw_text)
-
-        summary = parsed.get("summary", "No summary generated.")
-        raw_class = parsed.get("classification", "WARM").upper()
-        reason = parsed.get("reason", "")
-
-        classification = {
-            "HOT": LeadScore.HOT,
-            "WARM": LeadScore.WARM,
-            "COLD": LeadScore.COLD,
-        }.get(raw_class, LeadScore.WARM)
-
-        logger.info("Groq analysis complete: %s", raw_class)
-        return summary, classification, reason
-
-    except Exception as exc:
-        logger.error("Groq AI analysis failed: %s", exc)
-        return _fallback_analysis(lead)
+    logger.error("all providers failed (%s) — using fallback", " | ".join(errors))
+    return _fallback_analysis(lead)
 
 
 def _fallback_analysis(lead: LeadRequest) -> Tuple[str, LeadScore, str]:
