@@ -25,7 +25,7 @@ def test_each_provider_base_and_model():
     env = {"GROQ_API_KEY": "g", "GEMINI_API_KEY": "ge", "OPENAI_API_KEY": "o", "XAI_API_KEY": "x"}
     by = {c[0].split(":")[0]: (c[1], c[2]) for c in a._build_chain(env)}
     assert by["groq"] == ("https://api.groq.com/openai/v1", "llama-3.3-70b-versatile")
-    assert by["gemini"] == ("https://generativelanguage.googleapis.com/v1beta/openai", "gemini-2.5-flash")
+    assert by["gemini"] == ("https://generativelanguage.googleapis.com/v1beta/openai", "gemini-3.5-flash-lite")
     assert by["openai"] == ("https://api.openai.com/v1", "gpt-4o-mini")
     assert by["xai"] == ("https://api.x.ai/v1", "grok-2-latest")
 
