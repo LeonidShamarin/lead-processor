@@ -27,7 +27,7 @@ def test_each_provider_base_and_model():
     assert by["groq"] == ("https://api.groq.com/openai/v1", "openai/gpt-oss-120b")
     assert by["gemini"] == ("https://generativelanguage.googleapis.com/v1beta/openai", "gemini-3.5-flash-lite")
     assert by["openai"] == ("https://api.openai.com/v1", "gpt-4o-mini")
-    assert by["xai"] == ("https://api.x.ai/v1", "grok-2-latest")
+    assert by["xai"] == ("https://api.x.ai/v1", "grok-4.20-0309-non-reasoning")
 
 
 def test_reasoning_effort_sent_to_groq_only():

@@ -39,7 +39,7 @@ PROVIDERS = {
     "groq": (GROQ_BASE_URL, GROQ_MODEL),
     "gemini": ("https://generativelanguage.googleapis.com/v1beta/openai", "gemini-3.5-flash-lite"),
     "openai": ("https://api.openai.com/v1", "gpt-4o-mini"),
-    "xai": ("https://api.x.ai/v1", "grok-2-latest"),
+    "xai": ("https://api.x.ai/v1", "grok-4.20-0309-non-reasoning"),
 }
 # (provider, env var) in chain order; duplicates by (provider, key value) collapse.
 _CHAIN = [
