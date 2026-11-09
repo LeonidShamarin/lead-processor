@@ -3,7 +3,7 @@ AI service — uses Groq (FREE tier: 14,400 req/day) to:
 1. Generate a concise human-readable summary of the lead.
 2. Classify the lead as HOT / WARM / COLD with reasoning.
 
-Model: llama-3.3-70b-versatile — fast, accurate, free.
+Model: openai/gpt-oss-120b (Groq retired llama-3.3-70b-versatile in Nov 2026).
 Get a free API key at: https://console.groq.com/keys
 No credit card required.
 
@@ -22,7 +22,13 @@ from models import LeadRequest, LeadScore
 
 logger = logging.getLogger(__name__)
 
-GROQ_MODEL = "llama-3.3-70b-versatile"
+GROQ_BASE_URL = "https://api.groq.com/openai/v1"
+GROQ_MODEL = "openai/gpt-oss-120b"
+
+# Extra request fields per base URL. gpt-oss reasons before answering and those
+# tokens count against max_tokens; "low" keeps a lead analysis at ~80-150 tokens.
+# Other providers reject the field, so it is sent to Groq only.
+_EXTRA_BODY = {GROQ_BASE_URL: {"reasoning_effort": "low"}}
 
 # Provider fallback chain. Groq, OpenAI and xAI are OpenAI-compatible; Gemini has
 # an OpenAI-compatible endpoint. Order: the current provider (Groq) first, then the
@@ -30,7 +36,7 @@ GROQ_MODEL = "llama-3.3-70b-versatile"
 # to the next; if every one fails, analyze_lead still returns via _fallback_analysis.
 PROVIDERS = {
     # provider -> (base_url, model)
-    "groq": ("https://api.groq.com/openai/v1", GROQ_MODEL),
+    "groq": (GROQ_BASE_URL, GROQ_MODEL),
     "gemini": ("https://generativelanguage.googleapis.com/v1beta/openai", "gemini-3.5-flash-lite"),
     "openai": ("https://api.openai.com/v1", "gpt-4o-mini"),
     "xai": ("https://api.x.ai/v1", "grok-2-latest"),
@@ -101,7 +107,8 @@ async def _call_provider(client: httpx.AsyncClient, base_url: str, model: str,
     response = await client.post(
         f"{base_url}/chat/completions",
         headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-        json={"model": model, "messages": messages, "max_tokens": 512, "temperature": 0.2},
+        json={"model": model, "messages": messages, "max_tokens": 512, "temperature": 0.2,
+              **_EXTRA_BODY.get(base_url, {})},
     )
     response.raise_for_status()
     return response.json()["choices"][0]["message"]["content"].strip()

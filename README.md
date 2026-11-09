@@ -28,7 +28,7 @@ POST /webhook/lead
            │
            ▼
 ┌─────────────────────┐
-│   AI analysis       │  Groq · llama-3.3-70b-versatile
+│   AI analysis       │  Groq · openai/gpt-oss-120b
 │                     │  summary + HOT / WARM / COLD + reason
 └──────────┬──────────┘
            │
@@ -39,7 +39,7 @@ POST /webhook/lead
 └──────────┘ └──────────┘
 ```
 
-Stack: **FastAPI + Pydantic v2**, **Groq** (`llama-3.3-70b-versatile`), **Airtable REST API v0**,
+Stack: **FastAPI + Pydantic v2**, **Groq** (`openai/gpt-oss-120b`), **Airtable REST API v0**,
 **Telegram Bot API**. All outside calls go through `httpx`, no SDKs.
 
 ---

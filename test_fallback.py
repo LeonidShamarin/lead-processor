@@ -24,10 +24,35 @@ def test_chain_skips_unset_and_dedups_same_value():
 def test_each_provider_base_and_model():
     env = {"GROQ_API_KEY": "g", "GEMINI_API_KEY": "ge", "OPENAI_API_KEY": "o", "XAI_API_KEY": "x"}
     by = {c[0].split(":")[0]: (c[1], c[2]) for c in a._build_chain(env)}
-    assert by["groq"] == ("https://api.groq.com/openai/v1", "llama-3.3-70b-versatile")
+    assert by["groq"] == ("https://api.groq.com/openai/v1", "openai/gpt-oss-120b")
     assert by["gemini"] == ("https://generativelanguage.googleapis.com/v1beta/openai", "gemini-3.5-flash-lite")
     assert by["openai"] == ("https://api.openai.com/v1", "gpt-4o-mini")
     assert by["xai"] == ("https://api.x.ai/v1", "grok-2-latest")
+
+
+def test_reasoning_effort_sent_to_groq_only():
+    import asyncio
+    import json
+
+    import httpx
+
+    sent = {}
+
+    def handler(request):
+        sent[str(request.url)] = json.loads(request.content)
+        return httpx.Response(200, json={"choices": [{"message": {"content": "{}"}}]})
+
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            for provider in ("groq", "gemini"):
+                base, model = a.PROVIDERS[provider]
+                await a._call_provider(client, base, model, "k", [{"role": "user", "content": "x"}])
+
+    asyncio.run(run())
+    groq = sent["https://api.groq.com/openai/v1/chat/completions"]
+    gemini = sent["https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"]
+    assert groq["reasoning_effort"] == "low"
+    assert "reasoning_effort" not in gemini
 
 
 def test_parse_analysis_strips_fences_and_maps_class():

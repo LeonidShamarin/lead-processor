@@ -28,7 +28,7 @@ POST /webhook/lead
            │
            ▼
 ┌─────────────────────┐
-│   AI-аналіз         │  Groq · llama-3.3-70b-versatile
+│   AI-аналіз         │  Groq · openai/gpt-oss-120b
 │                     │  резюме + HOT / WARM / COLD + причина
 └──────────┬──────────┘
            │
@@ -39,7 +39,7 @@ POST /webhook/lead
 └──────────┘ └──────────┘
 ```
 
-Стек: **FastAPI + Pydantic v2**, **Groq** (`llama-3.3-70b-versatile`),
+Стек: **FastAPI + Pydantic v2**, **Groq** (`openai/gpt-oss-120b`),
 **Airtable REST API v0**, **Telegram Bot API**. Усі зовнішні виклики — через
 `httpx`, без SDK.
 
